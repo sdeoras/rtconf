@@ -1,40 +1,43 @@
 package rtconf
 
 import (
+	"context"
 	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"io/ioutil"
-	"net/http"
 	"path/filepath"
 	"strings"
-	"time"
+
+	runtimeconfig "google.golang.org/api/runtimeconfig/v1beta1"
 )
 
 const (
-	googleRtConfUrlFormatter = "https://runtimeconfig.googleapis.com/v1beta1/projects/%s/configs/%s/variables"
+	projects  = "projects"
+	configs   = "configs"
+	variables = "variables"
 )
 
-func getGoogleRtConfUrl(projectId, nameSpace string) string {
-	return fmt.Sprintf(googleRtConfUrlFormatter, projectId, nameSpace)
-}
-
 type googleRuntimeConfig struct {
-	nameSpace string
-	url       string
+	service         *runtimeconfig.Service
+	projectsService *runtimeconfig.ProjectsService
+	nameSpace       string
+	projectId       string
 }
 
-func newGoogleRtConf(projectId, nameSpace string) RtConf {
+func newGoogleRtConf(projectId, nameSpace string) (*googleRuntimeConfig, error) {
 	g := new(googleRuntimeConfig)
 	g.nameSpace = nameSpace
-	g.url = getGoogleRtConfUrl(projectId, nameSpace)
-	return g
-}
+	g.projectId = projectId
 
-type GoogleRtConfResponse struct {
-	Name       string    `json:"name"`
-	Value      string    `json:"value"`
-	UpdateTime time.Time `json:"updateTime"`
+	s, err := runtimeconfig.NewService(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	ps := runtimeconfig.NewProjectsService(s)
+	g.projectsService = ps
+
+	g.service = s
+
+	return g, nil
 }
 
 func (g *googleRuntimeConfig) Get(key string) ([]byte, error) {
@@ -42,48 +45,75 @@ func (g *googleRuntimeConfig) Get(key string) ([]byte, error) {
 	keys := strings.Split(key, "/")
 	key = filepath.Join(keys[1:]...)
 
-	url := fmt.Sprintf("%s/%s", g.url, key)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	myKey := filepath.Join(projects, g.projectId, configs, g.nameSpace, variables, key)
+	rt, err := g.projectsService.Configs.Variables.Get(myKey).Do()
 	if err != nil {
 		return nil, err
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s:%s. Mesg:%s", "expected status 200 OK, got", resp.Status, string(b))
-	}
-
-	r := new(GoogleRtConfResponse)
-	if err := json.Unmarshal(b, r); err != nil {
-		return nil, err
-	}
-
-	return base64.StdEncoding.DecodeString(r.Value)
+	return base64.StdEncoding.DecodeString(rt.Value)
 }
 
 func (g *googleRuntimeConfig) Set(key string, val []byte) error {
-	return nil
+	key = filepath.Join(g.nameSpace, key)
+	keys := strings.Split(key, "/")
+	key = filepath.Join(keys[1:]...)
+
+	parent := filepath.Join(projects, g.projectId, configs, g.nameSpace)
+	variable := new(runtimeconfig.Variable)
+	variable.Name = filepath.Join(parent, variables, key)
+	variable.Value = base64.StdEncoding.EncodeToString(val)
+
+	_, err := g.projectsService.Configs.Variables.Create(parent, variable).Do()
+	return err
 }
 
 func (g *googleRuntimeConfig) Delete(key string) error {
-	return nil
+	key = filepath.Join(g.nameSpace, key)
+	keys := strings.Split(key, "/")
+	key = filepath.Join(keys[1:]...)
+
+	key = filepath.Join(projects, g.projectId, configs, g.nameSpace, variables, key)
+
+	_, err := g.projectsService.Configs.Variables.Delete(key).Do()
+	return err
 }
 
 func (g *googleRuntimeConfig) Enumerate(key string) ([]string, error) {
-	return nil, nil
+	key = filepath.Join(g.nameSpace, key)
+	keys := strings.Split(key, "/")
+	key = filepath.Join(keys[1:]...)
+
+	parent := filepath.Join(projects, g.projectId, configs, g.nameSpace)
+
+	listCall := g.projectsService.Configs.Variables.List(parent).
+		Filter(filepath.Join(parent, variables, key)).
+		ReturnValues(false).
+		PageSize(10)
+
+	resp, err := listCall.Do()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, len(resp.Variables))
+	for _, variable := range resp.Variables {
+		out = append(out, variable.Name)
+	}
+
+	return out, nil
 }
 
 func (g *googleRuntimeConfig) Update(key string, val []byte) error {
-	return nil
+	key = filepath.Join(g.nameSpace, key)
+	keys := strings.Split(key, "/")
+	key = filepath.Join(keys[1:]...)
+
+	key = filepath.Join(projects, g.projectId, configs, g.nameSpace, variables, key)
+	variable := new(runtimeconfig.Variable)
+	variable.Name = key
+	variable.Value = base64.StdEncoding.EncodeToString(val)
+
+	_, err := g.projectsService.Configs.Variables.Update(key, variable).Do()
+	return err
 }
