@@ -5,6 +5,7 @@ import "github.com/sdeoras/kv"
 type RtConf interface {
 	kv.KV
 	Update(key string, val []byte) error
+	Watch(key string) error
 }
 
 // NewGoogleRtConf provides a google runtime configurator backed implementation for
