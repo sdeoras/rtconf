@@ -3,11 +3,16 @@ package rtconf
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	runtimeconfig "google.golang.org/api/runtimeconfig/v1beta1"
 )
+
+// the api is defined here:
+// https://cloud.google.com/deployment-manager/runtime-configurator/reference/rest/v1beta1/projects.configs.variables/list
 
 const (
 	projects  = "projects"
@@ -41,6 +46,10 @@ func newGoogleRtConf(projectId, nameSpace string) (*googleRuntimeConfig, error) 
 }
 
 func (g *googleRuntimeConfig) Get(key string) ([]byte, error) {
+	if len(key) == 0 {
+		return nil, fmt.Errorf("empty key is not allowed")
+	}
+
 	key = filepath.Join(g.nameSpace, key)
 	keys := strings.Split(key, "/")
 	key = filepath.Join(keys[1:]...)
@@ -55,6 +64,14 @@ func (g *googleRuntimeConfig) Get(key string) ([]byte, error) {
 }
 
 func (g *googleRuntimeConfig) Set(key string, val []byte) error {
+	if len(key) == 0 {
+		return fmt.Errorf("empty key is not allowed")
+	}
+
+	if val == nil {
+		return fmt.Errorf("nil value is not allowed")
+	}
+
 	key = filepath.Join(g.nameSpace, key)
 	keys := strings.Split(key, "/")
 	key = filepath.Join(keys[1:]...)
@@ -69,17 +86,38 @@ func (g *googleRuntimeConfig) Set(key string, val []byte) error {
 }
 
 func (g *googleRuntimeConfig) Delete(key string) error {
+	if len(key) == 0 {
+		return fmt.Errorf("empty key is not allowed")
+	}
+
 	key = filepath.Join(g.nameSpace, key)
 	keys := strings.Split(key, "/")
 	key = filepath.Join(keys[1:]...)
 
-	key = filepath.Join(projects, g.projectId, configs, g.nameSpace, variables, key)
+	keys, err := g.Enumerate(key)
+	if err != nil {
+		return err
+	}
 
-	_, err := g.projectsService.Configs.Variables.Delete(key).Do()
-	return err
+	if len(keys) == 0 {
+		return fmt.Errorf("no keys found to be deleted")
+	}
+
+	for _, key := range keys {
+		key := filepath.Join(projects, g.projectId, configs, g.nameSpace, variables, key)
+		if _, err := g.projectsService.Configs.Variables.Delete(key).Do(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (g *googleRuntimeConfig) Enumerate(key string) ([]string, error) {
+	if len(key) == 0 {
+		return nil, fmt.Errorf("empty key is not allowed")
+	}
+
 	key = filepath.Join(g.nameSpace, key)
 	keys := strings.Split(key, "/")
 	key = filepath.Join(keys[1:]...)
@@ -98,13 +136,17 @@ func (g *googleRuntimeConfig) Enumerate(key string) ([]string, error) {
 
 	out := make([]string, 0, len(resp.Variables))
 	for _, variable := range resp.Variables {
-		out = append(out, variable.Name)
+		out = append(out, strings.TrimPrefix(variable.Name, filepath.Join(parent, variables)))
 	}
 
 	return out, nil
 }
 
 func (g *googleRuntimeConfig) Update(key string, val []byte) error {
+	if len(key) == 0 {
+		return fmt.Errorf("empty key is not allowed")
+	}
+
 	key = filepath.Join(g.nameSpace, key)
 	keys := strings.Split(key, "/")
 	key = filepath.Join(keys[1:]...)
@@ -116,4 +158,25 @@ func (g *googleRuntimeConfig) Update(key string, val []byte) error {
 
 	_, err := g.projectsService.Configs.Variables.Update(key, variable).Do()
 	return err
+}
+
+func (g *googleRuntimeConfig) Watch(key string) error {
+	if len(key) == 0 {
+		return fmt.Errorf("empty key is not allowed")
+	}
+
+	key = filepath.Join(g.nameSpace, key)
+	keys := strings.Split(key, "/")
+	key = filepath.Join(keys[1:]...)
+
+	wvr := new(runtimeconfig.WatchVariableRequest)
+	wvr.NewerThan = time.Now().Format(time.RFC3339)
+
+	variables, err := g.projectsService.Configs.Variables.Watch(key, wvr).Do()
+	if err != nil {
+		return err
+	}
+
+	_ = variables
+	return nil
 }
