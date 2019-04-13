@@ -2,9 +2,16 @@ package rtconf
 
 import "github.com/sdeoras/kv"
 
+// RtConf defines a runtime config interface.
 type RtConf interface {
+	// KV defines Set, Get, Delete and Enumerate
 	kv.KV
+
+	// Update updates a variable value
 	Update(key string, val []byte) error
+
+	// Watch watches for key value changes at times newer
+	// than when the watch was started
 	Watch(key string) error
 }
 

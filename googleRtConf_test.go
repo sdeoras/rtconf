@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -110,4 +111,36 @@ func TestGoogleRuntimeConfig_Enumerate(t *testing.T) {
 	if filepath.Base(keys[0]) != key {
 		t.Fatal("expected:", key, "got:", filepath.Base(keys[0]))
 	}
+}
+
+func TestGoogleRuntimeConfig_Watch(t *testing.T) {
+	rt, err := newGoogleRtConf(os.Getenv("GOOGLE_PROJECT"), "my-config")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key := uuid.New().String()
+	val := "some unique value"
+	if err := rt.Set(key, []byte(val)); err != nil {
+		t.Fatal(1, err)
+	}
+	defer rt.Delete(key)
+
+	if val2, err := rt.Get(key); err != nil {
+		t.Fatal(err)
+	} else {
+		if string(val2) != val {
+			t.Fatal("expected:", val, "got:", string(val2))
+		}
+	}
+
+	go func() {
+		time.Sleep(time.Second)
+		_ = rt.Update(key, []byte("updated value"))
+	}()
+
+	if err := rt.Watch(key); err != nil {
+		t.Fatal(err)
+	}
+
 }

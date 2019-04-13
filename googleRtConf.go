@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	runtimeconfig2 "google.golang.org/genproto/googleapis/cloud/runtimeconfig/v1beta1"
+
 	runtimeconfig "google.golang.org/api/runtimeconfig/v1beta1"
 )
 
@@ -172,11 +174,15 @@ func (g *googleRuntimeConfig) Watch(key string) error {
 	wvr := new(runtimeconfig.WatchVariableRequest)
 	wvr.NewerThan = time.Now().Format(time.RFC3339)
 
+	key = filepath.Join(projects, g.projectId, configs, g.nameSpace, variables, key)
 	variables, err := g.projectsService.Configs.Variables.Watch(key, wvr).Do()
 	if err != nil {
 		return err
 	}
 
-	_ = variables
-	return nil
+	if variables.State == runtimeconfig2.VariableState_UPDATED.String() {
+		return nil
+	}
+
+	return fmt.Errorf(variables.State)
 }
