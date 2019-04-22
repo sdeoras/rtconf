@@ -26,3 +26,7 @@ func NewGoogleRtConf(projectId, nameSpace string) (RtConf, error) {
 func NewGoogleRtKv(projectId, nameSpace string) (kv.KV, error) {
 	return newGoogleRtConf(projectId, nameSpace)
 }
+
+func NewMemRtConf() RtConf {
+	return newMemRtConf()
+}
